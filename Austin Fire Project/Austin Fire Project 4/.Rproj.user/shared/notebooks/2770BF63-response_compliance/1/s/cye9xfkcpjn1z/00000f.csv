@@ -1,0 +1,6 @@
+"0","fire1 <- read.csv(""C:\\Users\\User\\Desktop\\ML SDS\\Austin Fire Project\\AFD_Fire_Incidents_2022-2024_20250930.csv"")"
+"0",""
+"0","cover <- read.csv(""C:\\Users\\User\\Desktop\\ML SDS\\Austin Fire Project\\AFD_Standard_of_Coverage_2022-2024_20250930.csv"")"
+"0",""
+"0","stations <- read.csv(""C:\\Users\\User\\Desktop\\ML SDS\\Austin Fire Project\\Fire_Stations_20250930.csv"")"
+"0",""

@@ -1,0 +1,162 @@
+---
+title: "firedata"
+output: html_document
+date: "2025-09-30"
+---
+
+```{r}
+fire1 <- read.csv("C:\\Users\\User\\Desktop\\ML SDS\\Austin Fire Project\\AFD_Fire_Incidents_2022-2024_20250930.csv")
+
+cover <- read.csv("C:\\Users\\User\\Desktop\\ML SDS\\Austin Fire Project\\AFD_Standard_of_Coverage_2022-2024_20250930.csv")
+
+stations <- read.csv("C:\\Users\\User\\Desktop\\ML SDS\\Austin Fire Project\\Fire_Stations_20250930.csv")
+
+```
+
+**Research Question:\
+Response Compliance worsened (or improved) between 2022 to 2024.**\
+
+First we will do some EDA and plotting before the modeling occurs.
+
+```{r, message=FALSE}
+library(tidyverse)
+
+
+incidents_table1 <- cover %>% 
+  group_by(CalendarYear) %>% 
+  arrange(CalendarYear) %>% 
+  select(CalendarYear, Response_Area, Valid_Emergency_Incs, Emergency_Incs_Within_8mins, X.Arrivals._Within_8mins, X90th_ResponseTime) %>% 
+  rename(num_incidents = Valid_Emergency_Incs)
+
+incidents_table1 <- incidents_table1 %>% 
+    rename(response_8mins = Emergency_Incs_Within_8mins,
+           arrivals_8mins = X.Arrivals._Within_8mins, response_time90 = X90th_ResponseTime)
+  
+#scatterplot of arrivals within 8 minutes
+incidents_table1 %>% 
+  group_by(CalendarYear) %>% 
+  summarize(total_arrivals = sum(arrivals_8mins, na.rm = TRUE)) %>% 
+  ggplot(aes(x = factor(CalendarYear), y = total_arrivals, fill = factor(CalendarYear)))+
+  geom_col(color = "black")+
+  labs(x = "Calendar Year", y = "Total Arrivals within 8 mins")+
+  geom_text(aes(label = total_arrivals), 
+            vjust = -0.3, 
+            size = 3)+
+  scale_fill_discrete(name = "Year")+
+  theme_bw()
+```
+
+This basic bar graph shows that the arrivals within 8 minutes (standard for firefighters) has been decreasing over time which means that as time progresses firefighters are taking longer than 8 minutes to respond.
+
+```{r}
+library(lubridate)
+response_table <- incidents_table1 %>% 
+  group_by(CalendarYear) %>% 
+  mutate(response_time90 = hms(response_time90), 
+         response_time90 = as.numeric(response_time90, "secs")/60, 
+         response_time90 = round(response_time90, 2)) %>% 
+  summarize(avg_response_time = mean(response_time90))
+
+response_table
+```
+
+```{r}
+response_24 <- 10.43414	
+response_22 <- 10.05997	
+response_24 - response_22
+```
+
+I created a table that calculates the average response in the 90th percentile by year by mutating the timing convention and changing it to the format of Minutes:Seconds. The table shows there is not a significant change in the average response time for firefighters in Austin in the past 3 years. The difference between 2024 and 2022's response time was \<.40 which means that the assumption is insignificant.
+
+```{r}
+#average percentage of arrivals within 8 minutes in the past 3 years. 
+
+within_8 <- incidents_table1 %>% 
+  group_by(CalendarYear) %>% 
+  summarize(avg_response_8mins = mean(arrivals_8mins))
+
+within_8
+
+ggplot(within_8, aes(x = CalendarYear, y = avg_response_8mins))+
+  geom_col()
+```
+
+This table also shows that there isn't a significant enough difference between any of the years to mark a upward or downward trend.\
+\
+
+# Hypothesis 2: Fire incidents peak during certain months such as the summer due to a higher rate grass fires in correlation to the weather.
+
+```{r}
+#first we will cluster the data and group all incidents into seasons in which they occurred. 
+fire1 <- fire1 %>% 
+  mutate(Date = as.Date(IncDate, format = "%m/%d/%Y %I:%M:%S %p"),
+         dateDay = format(Date, "%m-%d")) 
+
+fire1 <- fire1 %>%
+  mutate(
+    month = as.numeric(format(Date, "%m")),
+    day   = as.numeric(format(Date, "%d")),
+    season = case_when(
+      (month == 12 & day >= 21) | (month %in% c(1, 2)) | (month == 3 & day < 20) ~ "Winter",
+      (month == 3  & day >= 20) | (month %in% c(4, 5)) | (month == 6 & day < 21) ~ "Spring",
+      (month == 6  & day >= 21) | (month %in% c(7, 8)) | (month == 9 & day < 22) ~ "Summer",
+      (month == 9  & day >= 22) | (month %in% c(10, 11)) | (month == 12 & day < 21) ~ "Fall"
+    )
+  )
+
+incidents_season <- fire1 %>% 
+  group_by(season) %>% 
+  summarize(total_incidents = n())
+
+incidents_season
+```
+
+```{r}
+p = ggplot(incidents_season, aes(x = factor(season), y = total_incidents, fill = factor(season)))+
+  geom_col(color = "black")+
+  scale_fill_discrete(name = "Season")+
+  labs(x = "Season", y = "Fire Related Incidents")+
+  theme_bw()
+
+p
+```
+
+This graph is quite contrarian to the assumption that most fires occur in the summer. According to this graph most fires happen in the Winter. Let's research and see why this is the ultimately the case.
+
+# What are the most frequent types of fires per season.
+
+```{r, fig.width = 8, fig.height=6}
+fire1 <- fire1 %>%
+  mutate(Fire_Type = str_trim(str_split_fixed(Problem, "-", 2)[,1]))
+
+seasonal_fires <- fire1 %>% 
+  group_by(season, Fire_Type) %>% 
+  summarize(sum_of_fires = n(), .groups = "drop")
+
+season_plot = ggplot(data = seasonal_fires, aes(x = factor(Fire_Type), y = sum_of_fires, fill = factor(season)))+
+  geom_col(color = "black")+
+  facet_wrap(~ season)+
+  theme_bw()+
+  scale_fill_discrete(name = "Season")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = "Type of Fire Incident", y = "Total Fires")
+
+season_plot
+```
+
+According to this faceted bar graph, Trash and Grass Fires occur the most often regardless of the season.
+
+# Linear Regression Test
+
+```{r}
+write.csv(fire1, "fire_incidents_data.csv")
+
+
+total_incidents <- fire1 %>% 
+  group_by(season, Fire_Type, Council_District) %>% 
+  summarise(incident_count = n(), .groups = "drop")
+
+fire_model <- lm(incident_count ~ season + Fire_Type, data = total_incidents)
+
+summary(fire_model)
+```
